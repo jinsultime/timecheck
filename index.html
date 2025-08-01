@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>a연장근무 자동 계산 도구</title>
+  <title>#연장근무 자동 계산 도구</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: auto; }
@@ -13,10 +13,11 @@
     th { background: #f0f0f0; }
     button { padding: 8px 16px; margin-top: 10px; cursor: pointer; }
     #message { color: red; margin-top: 10px; }
+    .summary-table { margin-bottom: 30px; }
   </style>
 </head>
 <body>
-  <h1>a연장근무 자동 계산 도구</h1>
+  <h1>#연장근무 자동 계산 도구</h1>
   <input type="file" id="fileInput" accept=".xlsx" />
   <button onclick="downloadExcel()">엑셀 다운로드</button>
   <div id="message"></div>
@@ -24,6 +25,7 @@
 
   <script>
     let resultData = [];
+    let totalSummary = [];
 
     document.getElementById('fileInput').addEventListener('change', handleFile, false);
 
@@ -111,24 +113,65 @@
         };
       });
 
-      // ✅ 직원별 → 날짜순 정렬
+      // 직원별 → 날짜순 정렬
       resultData.sort((a,b) => {
         if (a.이름 < b.이름) return -1;
         if (a.이름 > b.이름) return 1;
         return new Date(a.날짜) - new Date(b.날짜);
       });
 
-      displayTable(resultData);
+      // ✅ 직원별 총합 계산
+      calculateTotalOvertime();
+      displayTable(resultData, totalSummary);
     }
 
-    function displayTable(data) {
+    function calculateTotalOvertime() {
+      let sumMap = {};
+      resultData.forEach(row => {
+        const h = parseFloat(row['연장근무시간']) || 0;
+        sumMap[row['이름']] = (sumMap[row['이름']] || 0) + h;
+      });
+
+      totalSummary = Object.entries(sumMap).map(([name, total]) => ({
+        이름: name,
+        총연장근무시간: total.toFixed(2)
+      }));
+    }
+
+    function displayTable(data, summary) {
       const container = document.getElementById('tableContainer');
       container.innerHTML = '';
       if (!data.length) return;
 
+      // ✅ 직원별 총합 테이블 먼저
+      const summaryTable = document.createElement('table');
+      summaryTable.classList.add('summary-table');
+      let thead1 = document.createElement('thead');
+      let tr1 = document.createElement('tr');
+      Object.keys(summary[0]).forEach(h => {
+        let th = document.createElement('th');
+        th.textContent = h;
+        tr1.appendChild(th);
+      });
+      thead1.appendChild(tr1);
+      summaryTable.appendChild(thead1);
+
+      let tbody1 = document.createElement('tbody');
+      summary.forEach(row => {
+        let tr = document.createElement('tr');
+        Object.keys(summary[0]).forEach(h => {
+          let td = document.createElement('td');
+          td.textContent = row[h];
+          tr.appendChild(td);
+        });
+        tbody1.appendChild(tr);
+      });
+      summaryTable.appendChild(tbody1);
+      container.appendChild(summaryTable);
+
+      // ✅ 상세 테이블
       const table = document.createElement('table');
       const header = Object.keys(data[0]);
-
       let thead = document.createElement('thead');
       let tr = document.createElement('tr');
       header.forEach(h => {
@@ -155,9 +198,16 @@
 
     function downloadExcel() {
       if (!resultData.length) return alert('데이터가 없습니다.');
-      const ws = XLSX.utils.json_to_sheet(resultData);
+
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '연장근무');
+      // 1️⃣ 직원별 총합 시트
+      const wsSummary = XLSX.utils.json_to_sheet(totalSummary);
+      XLSX.utils.book_append_sheet(wb, wsSummary, '직원별총합');
+
+      // 2️⃣ 상세 기록 시트
+      const ws = XLSX.utils.json_to_sheet(resultData);
+      XLSX.utils.book_append_sheet(wb, ws, '연장근무상세');
+
       XLSX.writeFile(wb, '연장근무_계산결과.xlsx');
     }
   </script>
