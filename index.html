@@ -46,7 +46,7 @@
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
         processData(json);
       };
 
@@ -55,7 +55,9 @@
 
     function processData(data) {
       document.getElementById('message').textContent = '';
-      const headerRowIndex = data.findIndex(row => row.includes('인증일시'));
+
+      // ✅ 헤더 행 탐색
+      const headerRowIndex = data.findIndex(row => row.some(cell => String(cell).includes('인증일시')));
       if (headerRowIndex === -1) {
         document.getElementById('message').textContent = '엑셀 파일에서 [인증일시] 컬럼을 찾을 수 없습니다.';
         return;
@@ -73,7 +75,6 @@
       let records = rows
         .filter(r => r[colIndex.date] && (r[colIndex.mode] === '출근' || r[colIndex.mode] === '퇴근'))
         .map(r => {
-          // 날짜/시간 안정 파싱
           let dateVal = r[colIndex.date];
           let dt;
           if (typeof dateVal === 'number') {
@@ -81,6 +82,7 @@
             dt = XLSX.SSF.parse_date_code(dateVal);
             dt = new Date(Date.UTC(dt.y, dt.m - 1, dt.d, dt.H, dt.M, dt.S));
           } else {
+            // 문자열 날짜 처리 (오전/오후 → AM/PM)
             let dateStr = String(dateVal).replace('오전','AM').replace('오후','PM');
             dt = new Date(dateStr);
           }
@@ -188,13 +190,25 @@
       container.appendChild(table);
     }
 
+    function autoFitColumns(ws, data) {
+      const colWidths = Object.keys(data[0]).map((k, i) =>
+        Math.max(k.length, ...data.map(r => String(r[k]).length))
+      );
+      ws['!cols'] = colWidths.map(w => ({ wch: w + 2 }));
+    }
+
     function downloadExcel() {
       if (!resultData.length) return alert('데이터가 없습니다.');
-      const ws1 = XLSX.utils.json_to_sheet(resultData);
-      const ws2 = XLSX.utils.json_to_sheet(monthlyResult);
       const wb = XLSX.utils.book_new();
+
+      const ws1 = XLSX.utils.json_to_sheet(resultData);
+      autoFitColumns(ws1, resultData);
       XLSX.utils.book_append_sheet(wb, ws1, '일별연장근무');
+
+      const ws2 = XLSX.utils.json_to_sheet(monthlyResult);
+      autoFitColumns(ws2, monthlyResult);
       XLSX.utils.book_append_sheet(wb, ws2, '월별합산');
+
       XLSX.writeFile(wb, '연장근무_계산결과.xlsx');
     }
   </script>
