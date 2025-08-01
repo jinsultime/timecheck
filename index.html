@@ -12,12 +12,14 @@
     th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
     th { background: #f0f0f0; }
     button { padding: 8px 16px; margin-top: 10px; cursor: pointer; }
+    #message { color: red; margin-top: 10px; }
   </style>
 </head>
 <body>
   <h1>연장근무 자동 계산 도구</h1>
   <input type="file" id="fileInput" accept=".xlsx" />
   <button onclick="downloadExcel()">엑셀 다운로드</button>
+  <div id="message"></div>
   <div id="tableContainer"></div>
 
   <script>
@@ -42,8 +44,15 @@
     }
 
     function processData(data) {
-      const headerRow = data[1];
-      const rows = data.slice(2);
+      document.getElementById('message').textContent = '';
+      const headerRowIndex = data.findIndex(row => row.includes('인증일시'));
+      if (headerRowIndex === -1) {
+        document.getElementById('message').textContent = '엑셀 파일에서 [인증일시] 컬럼을 찾을 수 없습니다.';
+        return;
+      }
+
+      const headerRow = data[headerRowIndex];
+      const rows = data.slice(headerRowIndex + 1);
       const colIndex = {
         date: headerRow.indexOf('인증일시'),
         day: headerRow.indexOf('요일'),
@@ -55,13 +64,27 @@
         .filter(r => r[colIndex.date] && (r[colIndex.mode] === '출근' || r[colIndex.mode] === '퇴근'))
         .map(r => {
           let dateStr = String(r[colIndex.date]).replace('오전','AM').replace('오후','PM');
+          let dt = new Date(dateStr);
+          if (isNaN(dt)) {
+            // YYYY-MM-DD AM 08:30:00 형태 처리
+            const parts = dateStr.split(' ');
+            if (parts.length === 3) {
+              dt = new Date(parts[0] + ' ' + parts[2] + ' ' + parts[1]);
+            }
+          }
           return {
             name: r[colIndex.name],
             day: r[colIndex.day],
-            datetime: new Date(dateStr),
+            datetime: dt,
             mode: r[colIndex.mode]
           };
-        });
+        })
+        .filter(r => !isNaN(r.datetime));
+
+      if (!records.length) {
+        document.getElementById('message').textContent = '출근/퇴근 데이터가 없습니다.';
+        return;
+      }
 
       let grouped = {};
       records.forEach(rec => {
