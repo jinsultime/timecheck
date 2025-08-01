@@ -66,11 +66,8 @@
           let dateStr = String(r[colIndex.date]).replace('오전','AM').replace('오후','PM');
           let dt = new Date(dateStr);
           if (isNaN(dt)) {
-            // YYYY-MM-DD AM 08:30:00 형태 처리
             const parts = dateStr.split(' ');
-            if (parts.length === 3) {
-              dt = new Date(parts[0] + ' ' + parts[2] + ' ' + parts[1]);
-            }
+            if (parts.length === 3) dt = new Date(parts[0] + ' ' + parts[2] + ' ' + parts[1]);
           }
           return {
             name: r[colIndex.name],
@@ -112,6 +109,13 @@
           퇴근시간: r.out ? r.out.toLocaleTimeString() : '',
           연장근무시간: overtime.toFixed(2)
         };
+      });
+
+      // ✅ 직원별 → 날짜순 정렬
+      resultData.sort((a,b) => {
+        if (a.이름 < b.이름) return -1;
+        if (a.이름 > b.이름) return 1;
+        return new Date(a.날짜) - new Date(b.날짜);
       });
 
       displayTable(resultData);
