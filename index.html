@@ -56,14 +56,16 @@
     function processData(data) {
       document.getElementById('message').textContent = '';
 
-      // ✅ 헤더 행 탐색
-      const headerRowIndex = data.findIndex(row => row.some(cell => String(cell).includes('인증일시')));
+      // 🔹 병합셀/빈행 대응: 모든 셀을 문자열화 후 탐색
+      const headerRowIndex = data.findIndex(row =>
+        row.some(cell => String(cell || '').includes('인증일시'))
+      );
       if (headerRowIndex === -1) {
         document.getElementById('message').textContent = '엑셀 파일에서 [인증일시] 컬럼을 찾을 수 없습니다.';
         return;
       }
 
-      const headerRow = data[headerRowIndex];
+      const headerRow = data[headerRowIndex].map(v => String(v || '').trim());
       const rows = data.slice(headerRowIndex + 1);
       const colIndex = {
         date: headerRow.indexOf('인증일시'),
@@ -100,7 +102,7 @@
         return;
       }
 
-      // 이름+날짜별 출퇴근 시간 계산
+      // 🔹 이름+날짜별 출퇴근 시간 계산
       let grouped = {};
       records.forEach(rec => {
         const dateKey = rec.datetime.toISOString().split('T')[0];
@@ -113,7 +115,7 @@
         }
       });
 
-      // 일자별 데이터 생성
+      // 🔹 일자별 데이터 생성
       resultData = Object.values(grouped).map(r => {
         let overtime = 0;
         if (r.out) {
@@ -131,14 +133,14 @@
         };
       });
 
-      // 직원별 → 날짜순 정렬
+      // 🔹 직원별 → 날짜순 정렬
       resultData.sort((a,b) => {
         if (a.이름 < b.이름) return -1;
         if (a.이름 > b.이름) return 1;
         return new Date(a.날짜) - new Date(b.날짜);
       });
 
-      // 월별 합산 데이터 생성
+      // 🔹 월별 합산 데이터 생성
       let monthlyData = {};
       resultData.forEach(r => {
         const monthKey = r.이름 + '_' + r.날짜.slice(0,7);
@@ -190,6 +192,7 @@
       container.appendChild(table);
     }
 
+    // 🔹 엑셀 시트 열 너비 자동 조정
     function autoFitColumns(ws, data) {
       const colWidths = Object.keys(data[0]).map((k, i) =>
         Math.max(k.length, ...data.map(r => String(r[k]).length))
@@ -214,4 +217,3 @@
   </script>
 </body>
 </html>
-
