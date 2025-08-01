@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>연장근무 자동 계산 도구</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: auto; }
+    h1 { color: #2c3e50; }
+    input[type="file"] { margin: 10px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    th { background: #f0f0f0; }
+    button { padding: 8px 16px; margin-top: 10px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>연장근무 자동 계산 도구</h1>
+  <input type="file" id="fileInput" accept=".xlsx" />
+  <button onclick="downloadExcel()">엑셀 다운로드</button>
+  <div id="tableContainer"></div>
+
+  <script>
+    let resultData = [];
+
+    document.getElementById('fileInput').addEventListener('change', handleFile, false);
+
+    function handleFile(event) {
+      const file = event.target.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        processData(json);
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    function processData(data) {
+      const headerRow = data[1];
+      const rows = data.slice(2);
+      const colIndex = {
+        date: headerRow.indexOf('인증일시'),
+        day: headerRow.indexOf('요일'),
+        name: headerRow.indexOf('이름'),
+        mode: headerRow.indexOf('인증모드')
+      };
+
+      let records = rows
+        .filter(r => r[colIndex.date] && (r[colIndex.mode] === '출근' || r[colIndex.mode] === '퇴근'))
+        .map(r => {
+          let dateStr = String(r[colIndex.date]).replace('오전','AM').replace('오후','PM');
+          return {
+            name: r[colIndex.name],
+            day: r[colIndex.day],
+            datetime: new Date(dateStr),
+            mode: r[colIndex.mode]
+          };
+        });
+
+      let grouped = {};
+      records.forEach(rec => {
+        const key = rec.name + '_' + rec.datetime.toISOString().split('T')[0];
+        if (!grouped[key]) grouped[key] = { name: rec.name, date: rec.datetime.toISOString().split('T')[0], day: rec.day, in: null, out: null };
+        if (rec.mode === '출근') {
+          if (!grouped[key].in || rec.datetime < grouped[key].in) grouped[key].in = rec.datetime;
+        } else {
+          if (!grouped[key].out || rec.datetime > grouped[key].out) grouped[key].out = rec.datetime;
+        }
+      });
+
+      resultData = Object.values(grouped).map(r => {
+        let overtime = 0;
+        if (r.out) {
+          const baseHour = ['월','화','수','목','금'].includes(r.day) ? 19 : 14;
+          const base = new Date(r.date + 'T' + String(baseHour).padStart(2,'0') + ':00:00');
+          overtime = Math.max(0, (r.out - base) / 3600000);
+        }
+        return {
+          이름: r.name,
+          날짜: r.date,
+          요일: r.day,
+          출근시간: r.in ? r.in.toLocaleTimeString() : '',
+          퇴근시간: r.out ? r.out.toLocaleTimeString() : '',
+          연장근무시간: overtime.toFixed(2)
+        };
+      });
+
+      displayTable(resultData);
+    }
+
+    function displayTable(data) {
+      const container = document.getElementById('tableContainer');
+      container.innerHTML = '';
+      if (!data.length) return;
+
+      const table = document.createElement('table');
+      const header = Object.keys(data[0]);
+
+      let thead = document.createElement('thead');
+      let tr = document.createElement('tr');
+      header.forEach(h => {
+        let th = document.createElement('th');
+        th.textContent = h;
+        tr.appendChild(th);
+      });
+      thead.appendChild(tr);
+      table.appendChild(thead);
+
+      let tbody = document.createElement('tbody');
+      data.forEach(row => {
+        let tr = document.createElement('tr');
+        header.forEach(h => {
+          let td = document.createElement('td');
+          td.textContent = row[h];
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    function downloadExcel() {
+      if (!resultData.length) return alert('데이터가 없습니다.');
+      const ws = XLSX.utils.json_to_sheet(resultData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '연장근무');
+      XLSX.writeFile(wb, '연장근무_계산결과.xlsx');
+    }
+  </script>
+</body>
+</html>
