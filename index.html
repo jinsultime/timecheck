@@ -14,6 +14,7 @@
     button { padding: 8px 16px; margin-top: 10px; cursor: pointer; }
     #message { color: red; margin-top: 10px; }
     .section { margin-top: 40px; }
+    .total-row { font-weight: bold; background: #f9f9f9; }
   </style>
 </head>
 <body>
@@ -56,7 +57,7 @@
     function processData(data) {
       document.getElementById('message').textContent = '';
 
-      // 🔹 병합셀/빈행 대응: 모든 셀을 문자열화 후 탐색
+      // ✅ 병합셀/빈행 대응
       const headerRowIndex = data.findIndex(row =>
         row.some(cell => String(cell || '').includes('인증일시'))
       );
@@ -84,7 +85,7 @@
             dt = XLSX.SSF.parse_date_code(dateVal);
             dt = new Date(Date.UTC(dt.y, dt.m - 1, dt.d, dt.H, dt.M, dt.S));
           } else {
-            // 문자열 날짜 처리 (오전/오후 → AM/PM)
+            // 문자열 날짜 처리
             let dateStr = String(dateVal).replace('오전','AM').replace('오후','PM');
             dt = new Date(dateStr);
           }
@@ -149,11 +150,19 @@
         }
         monthlyData[monthKey].총연장근무시간 += parseFloat(r.연장근무시간);
       });
+
+      // 배열 변환 & 정렬 (연장근무시간 많은 순)
       monthlyResult = Object.values(monthlyData);
-      monthlyResult.sort((a,b) => {
-        if (a.이름 < b.이름) return -1;
-        if (a.이름 > b.이름) return 1;
-        return a.월.localeCompare(b.월);
+      monthlyResult.sort((a,b) => b.총연장근무시간 - a.총연장근무시간);
+
+      // 🔹 월별 합계 행 추가
+      const monthTotals = {};
+      monthlyResult.forEach(r => {
+        if (!monthTotals[r.월]) monthTotals[r.월] = 0;
+        monthTotals[r.월] += r.총연장근무시간;
+      });
+      Object.keys(monthTotals).forEach(month => {
+        monthlyResult.push({ 이름: '총합', 월: month, 총연장근무시간: monthTotals[month].toFixed(2) });
       });
 
       displayTable('dailyTable', resultData);
@@ -181,6 +190,7 @@
       let tbody = document.createElement('tbody');
       data.forEach(row => {
         let tr = document.createElement('tr');
+        if (row.이름 === '총합') tr.classList.add('total-row');
         header.forEach(h => {
           let td = document.createElement('td');
           td.textContent = row[h];
