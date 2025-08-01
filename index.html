@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>연장근무.. 자동 계산 도구</title>
+  <title>연장근무 자동 계산 도구</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: auto; }
@@ -14,11 +14,10 @@
     button { padding: 8px 16px; margin-top: 10px; cursor: pointer; }
     #message { color: red; margin-top: 10px; }
     .section { margin-top: 40px; }
-    .total-row { font-weight: bold; background: #f9f9f9; }
   </style>
 </head>
 <body>
-  <h1>연장근무 자동 계산 도구</h1>
+  <h1>연장근무 자동계산</h1>
   <input type="file" id="fileInput" accept=".xlsx" />
   <button onclick="downloadExcel()">엑셀 다운로드</button>
   <div id="message"></div>
@@ -47,7 +46,7 @@
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
         processData(json);
       };
 
@@ -56,17 +55,13 @@
 
     function processData(data) {
       document.getElementById('message').textContent = '';
-
-      // ✅ 강화된 헤더 탐색 (병합셀, 빈칸 무시)
-      const headerRowIndex = data.findIndex(row =>
-        row.map(c => String(c || '')).join('|').includes('인증일시')
-      );
+      const headerRowIndex = data.findIndex(row => row.includes('인증일시'));
       if (headerRowIndex === -1) {
         document.getElementById('message').textContent = '엑셀 파일에서 [인증일시] 컬럼을 찾을 수 없습니다.';
         return;
       }
 
-      const headerRow = data[headerRowIndex].map(v => String(v || '').trim());
+      const headerRow = data[headerRowIndex];
       const rows = data.slice(headerRowIndex + 1);
       const colIndex = {
         date: headerRow.indexOf('인증일시'),
@@ -78,6 +73,7 @@
       let records = rows
         .filter(r => r[colIndex.date] && (r[colIndex.mode] === '출근' || r[colIndex.mode] === '퇴근'))
         .map(r => {
+          // 날짜/시간 안정 파싱
           let dateVal = r[colIndex.date];
           let dt;
           if (typeof dateVal === 'number') {
@@ -85,7 +81,6 @@
             dt = XLSX.SSF.parse_date_code(dateVal);
             dt = new Date(Date.UTC(dt.y, dt.m - 1, dt.d, dt.H, dt.M, dt.S));
           } else {
-            // 문자열 날짜 처리
             let dateStr = String(dateVal).replace('오전','AM').replace('오후','PM');
             dt = new Date(dateStr);
           }
@@ -103,7 +98,7 @@
         return;
       }
 
-      // 🔹 이름+날짜별 출퇴근 시간 계산
+      // 이름+날짜별 출퇴근 시간 계산
       let grouped = {};
       records.forEach(rec => {
         const dateKey = rec.datetime.toISOString().split('T')[0];
@@ -116,7 +111,7 @@
         }
       });
 
-      // 🔹 일자별 데이터 생성
+      // 일자별 데이터 생성
       resultData = Object.values(grouped).map(r => {
         let overtime = 0;
         if (r.out) {
@@ -134,14 +129,14 @@
         };
       });
 
-      // 🔹 직원별 → 날짜순 정렬
+      // 직원별 → 날짜순 정렬
       resultData.sort((a,b) => {
         if (a.이름 < b.이름) return -1;
         if (a.이름 > b.이름) return 1;
         return new Date(a.날짜) - new Date(b.날짜);
       });
 
-      // 🔹 월별 합산 데이터 생성
+      // 월별 합산 데이터 생성
       let monthlyData = {};
       resultData.forEach(r => {
         const monthKey = r.이름 + '_' + r.날짜.slice(0,7);
@@ -150,19 +145,11 @@
         }
         monthlyData[monthKey].총연장근무시간 += parseFloat(r.연장근무시간);
       });
-
-      // 배열 변환 & 정렬 (연장근무시간 많은 순)
       monthlyResult = Object.values(monthlyData);
-      monthlyResult.sort((a,b) => b.총연장근무시간 - a.총연장근무시간);
-
-      // 🔹 월별 합계 행 추가
-      const monthTotals = {};
-      monthlyResult.forEach(r => {
-        if (!monthTotals[r.월]) monthTotals[r.월] = 0;
-        monthTotals[r.월] += r.총연장근무시간;
-      });
-      Object.keys(monthTotals).forEach(month => {
-        monthlyResult.push({ 이름: '총합', 월: month, 총연장근무시간: monthTotals[month].toFixed(2) });
+      monthlyResult.sort((a,b) => {
+        if (a.이름 < b.이름) return -1;
+        if (a.이름 > b.이름) return 1;
+        return a.월.localeCompare(b.월);
       });
 
       displayTable('dailyTable', resultData);
@@ -190,7 +177,6 @@
       let tbody = document.createElement('tbody');
       data.forEach(row => {
         let tr = document.createElement('tr');
-        if (row.이름 === '총합') tr.classList.add('total-row');
         header.forEach(h => {
           let td = document.createElement('td');
           td.textContent = row[h];
@@ -202,26 +188,13 @@
       container.appendChild(table);
     }
 
-    // 🔹 엑셀 시트 열 너비 자동 조정
-    function autoFitColumns(ws, data) {
-      const colWidths = Object.keys(data[0]).map((k, i) =>
-        Math.max(k.length, ...data.map(r => String(r[k]).length))
-      );
-      ws['!cols'] = colWidths.map(w => ({ wch: w + 2 }));
-    }
-
     function downloadExcel() {
       if (!resultData.length) return alert('데이터가 없습니다.');
-      const wb = XLSX.utils.book_new();
-
       const ws1 = XLSX.utils.json_to_sheet(resultData);
-      autoFitColumns(ws1, resultData);
-      XLSX.utils.book_append_sheet(wb, ws1, '일별연장근무');
-
       const ws2 = XLSX.utils.json_to_sheet(monthlyResult);
-      autoFitColumns(ws2, monthlyResult);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws1, '일별연장근무');
       XLSX.utils.book_append_sheet(wb, ws2, '월별합산');
-
       XLSX.writeFile(wb, '연장근무_계산결과.xlsx');
     }
   </script>
