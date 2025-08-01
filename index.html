@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>연장근무 자동 계산 도구</title>
+  <title>a연장근무 자동 계산 도구</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: auto; }
@@ -13,28 +13,17 @@
     th { background: #f0f0f0; }
     button { padding: 8px 16px; margin-top: 10px; cursor: pointer; }
     #message { color: red; margin-top: 10px; }
-    .section { margin-top: 40px; }
   </style>
 </head>
 <body>
-  <h1>연장근무 자동계산</h1>
+  <h1>a연장근무 자동 계산 도구</h1>
   <input type="file" id="fileInput" accept=".xlsx" />
   <button onclick="downloadExcel()">엑셀 다운로드</button>
   <div id="message"></div>
-
-  <div class="section">
-    <h2>직원별 · 일자별 연장근무</h2>
-    <div id="dailyTable"></div>
-  </div>
-
-  <div class="section">
-    <h2>직원별 · 월별 연장근무 합산</h2>
-    <div id="monthlyTable"></div>
-  </div>
+  <div id="tableContainer"></div>
 
   <script>
     let resultData = [];
-    let monthlyResult = [];
 
     document.getElementById('fileInput').addEventListener('change', handleFile, false);
 
@@ -47,6 +36,7 @@
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
         processData(json);
       };
 
@@ -73,16 +63,11 @@
       let records = rows
         .filter(r => r[colIndex.date] && (r[colIndex.mode] === '출근' || r[colIndex.mode] === '퇴근'))
         .map(r => {
-          // 날짜/시간 안정 파싱
-          let dateVal = r[colIndex.date];
-          let dt;
-          if (typeof dateVal === 'number') {
-            // 엑셀 시리얼 날짜 처리
-            dt = XLSX.SSF.parse_date_code(dateVal);
-            dt = new Date(Date.UTC(dt.y, dt.m - 1, dt.d, dt.H, dt.M, dt.S));
-          } else {
-            let dateStr = String(dateVal).replace('오전','AM').replace('오후','PM');
-            dt = new Date(dateStr);
+          let dateStr = String(r[colIndex.date]).replace('오전','AM').replace('오후','PM');
+          let dt = new Date(dateStr);
+          if (isNaN(dt)) {
+            const parts = dateStr.split(' ');
+            if (parts.length === 3) dt = new Date(parts[0] + ' ' + parts[2] + ' ' + parts[1]);
           }
           return {
             name: r[colIndex.name],
@@ -98,12 +83,10 @@
         return;
       }
 
-      // 이름+날짜별 출퇴근 시간 계산
       let grouped = {};
       records.forEach(rec => {
-        const dateKey = rec.datetime.toISOString().split('T')[0];
-        const key = rec.name + '_' + dateKey;
-        if (!grouped[key]) grouped[key] = { name: rec.name, date: dateKey, day: rec.day, in: null, out: null };
+        const key = rec.name + '_' + rec.datetime.toISOString().split('T')[0];
+        if (!grouped[key]) grouped[key] = { name: rec.name, date: rec.datetime.toISOString().split('T')[0], day: rec.day, in: null, out: null };
         if (rec.mode === '출근') {
           if (!grouped[key].in || rec.datetime < grouped[key].in) grouped[key].in = rec.datetime;
         } else {
@@ -111,7 +94,6 @@
         }
       });
 
-      // 일자별 데이터 생성
       resultData = Object.values(grouped).map(r => {
         let overtime = 0;
         if (r.out) {
@@ -123,41 +105,24 @@
           이름: r.name,
           날짜: r.date,
           요일: r.day,
-          출근시간: r.in ? r.in.toTimeString().slice(0,5) : '',
-          퇴근시간: r.out ? r.out.toTimeString().slice(0,5) : '',
+          출근시간: r.in ? r.in.toLocaleTimeString() : '',
+          퇴근시간: r.out ? r.out.toLocaleTimeString() : '',
           연장근무시간: overtime.toFixed(2)
         };
       });
 
-      // 직원별 → 날짜순 정렬
+      // ✅ 직원별 → 날짜순 정렬
       resultData.sort((a,b) => {
         if (a.이름 < b.이름) return -1;
         if (a.이름 > b.이름) return 1;
         return new Date(a.날짜) - new Date(b.날짜);
       });
 
-      // 월별 합산 데이터 생성
-      let monthlyData = {};
-      resultData.forEach(r => {
-        const monthKey = r.이름 + '_' + r.날짜.slice(0,7);
-        if (!monthlyData[monthKey]) {
-          monthlyData[monthKey] = { 이름: r.이름, 월: r.날짜.slice(0,7), 총연장근무시간: 0 };
-        }
-        monthlyData[monthKey].총연장근무시간 += parseFloat(r.연장근무시간);
-      });
-      monthlyResult = Object.values(monthlyData);
-      monthlyResult.sort((a,b) => {
-        if (a.이름 < b.이름) return -1;
-        if (a.이름 > b.이름) return 1;
-        return a.월.localeCompare(b.월);
-      });
-
-      displayTable('dailyTable', resultData);
-      displayTable('monthlyTable', monthlyResult);
+      displayTable(resultData);
     }
 
-    function displayTable(containerId, data) {
-      const container = document.getElementById(containerId);
+    function displayTable(data) {
+      const container = document.getElementById('tableContainer');
       container.innerHTML = '';
       if (!data.length) return;
 
@@ -190,11 +155,9 @@
 
     function downloadExcel() {
       if (!resultData.length) return alert('데이터가 없습니다.');
-      const ws1 = XLSX.utils.json_to_sheet(resultData);
-      const ws2 = XLSX.utils.json_to_sheet(monthlyResult);
+      const ws = XLSX.utils.json_to_sheet(resultData);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws1, '일별연장근무');
-      XLSX.utils.book_append_sheet(wb, ws2, '월별합산');
+      XLSX.utils.book_append_sheet(wb, ws, '연장근무');
       XLSX.writeFile(wb, '연장근무_계산결과.xlsx');
     }
   </script>
